@@ -12,7 +12,13 @@ from services import NotificationService, load_users, save_users
 # print the options as a list (1, 2, 3) and return the number the user types.
 # prompt user until they type a valid option
 def get_menu_choice(options):
-    pass
+    for number, option in enumerate(options, start=1):
+        print(f"  {number}. {option}")
+    while True:
+        text = input("Choose an option: ").strip()
+        if text.isdigit() and 1 <= int(text) <= len(options):
+            return int(text)
+        print(f"Enter a number from 1 to {len(options)}.")
 
 
 # ask for a date and time (prompt for a consistent format) and return a datetime.
@@ -64,19 +70,75 @@ def update_events(facilities):
 # show_admin_menu(); everyone else goes to show_user_menu().
 # call update_events(facilities) each time before showing this menu.
 def main():
-    pass
+    facilities = create_sample_facilities()
+    users = load_users(facilities)  # needs facilities to relink saved bookings to rooms
+    notifier = NotificationService()
+ 
+    while True:
+        update_events(facilities)
+        print("\nSmart Campus Event & facility Booking")
+        choice = get_menu_choice(["Login", "Register", "Exit"])
+ 
+        if choice == 1:
+            user = login_screen(users)
+            if user is None:
+                continue
+            if user.is_authorized("approve"):
+                show_admin_menu(user, users, facilities, notifier)
+            else:
+                show_user_menu(user, facilities, notifier)
+        elif choice == 2:
+            register_screen(users)
+        else:
+            save_users(users)
+            print("Exited")
+            return
 
 
 # ask for an email and return the matching user (None if DNE)
 # use User.login()
 def login_screen(users):
-    pass
+    email = input("Email: ").strip().lower()
+    user = next((u for u in users if u.email.lower() ==email), None)
+    if user is None:
+        print("No account with that email. Choose Register to create one")
+        return None
+    if not user.login():
+        print(f"{user.name} is already logged in.")
+        return None
+    print(f"Welcome, {user.name} ({user.role.value}).")
+    return user
 
 
 # ask for name, email and role, create the User, and save it to users.json.
 # use User.register(), save_users()
 def register_screen(users):
-    pass
+    name = input("Name: ").strip()
+    email = input("Email: ").strip().lower()
+    if any(u.email.lower() == email for u in users):
+        print("An account with that email already exists.")
+        return None
+ 
+    roles = list(Role)
+    print("Role:")
+    role = roles[get_menu_choice([r.value for r in roles]) - 1]
+ 
+    user = User(next_user_id(users), name, email, role)
+    try:
+        user.register()
+    except ValueError as error:
+        print(f"Registration failed: {error}")
+        return None
+ 
+    users.append(user)
+    save_users(users)
+    print(f"Registered {user.name} as {user.role.value}. You can log in now.")
+    return user
+
+# ids like U1, U2, etc that never repeat even after users.json is reloaded
+def next_user_id(users):
+    numbers = [int(u.user_id[1:]) for u in users if u.user_id[1:].isdigit()]
+    return f"U{max(numbers, default=0) + 1}"
 
 
 # REGULAR USER (submits bookings) SCREENS
@@ -95,8 +157,17 @@ def register_screen(users):
 # use User.logout()
 # call update_events(facilities) each time before showing this menu.
 def show_user_menu(user, facilities, notifier):
-    pass
-
+    actions = [
+        ("Search for a Room", lambda: search_rooms(facilities)),
+        ("View Facility Details", lambda: view_facility_details(facilities)),
+        ("Reserve a Room", lambda: reserve_room(user, facilities, notifier)),
+        ("Edit a Booking", lambda: edit_booking(user, notifier)),
+        ("Cancel a Booking", lambda: cancel_booking(user, notifier)),
+        ("View My Bookings", lambda: view_my_bookings(user)),
+        ("Request Equipment / Security / Event Support", lambda: request_support(user)),
+        ("View Upcoming Events", lambda: show_upcoming_events(user)),
+    ]
+    run_menu(f"{user.name} ({user.role.value})", actions, user, facilities)
 
 # ask for date, start/end time, minimum capacity and location to print free rooms
 # use Facility.find_available_rooms()
@@ -150,7 +221,14 @@ def request_support(user):
 # print the user's approved bookings that haven't happened yet.
 # use User.view_upcoming_events()
 def show_upcoming_events(user):
-    pass
+    events = user.view_upcoming_events()
+    if not events:
+        print("You have no upcoming approved events.")
+        return
+    print("Your upcoming events:")
+    for r in events:
+        print(f"  {r.start_at:%Y-%m-%d %H:%M}-{r.end_at:%H:%M}  {r.event_title}  "
+              f"(room {r.room.room_id}, {r.expected_attendance} people)")
 
 
 # ADMIN (approves bookings) SCREENS
@@ -165,8 +243,28 @@ def show_upcoming_events(user):
 # use User.logout()
 # call update_events(facilities) each time before showing this menu.
 def show_admin_menu(admin, users, facilities, notifier):
-    pass
+    actions = [
+        ("Review Pending Requests", lambda: review_pending_requests(admin, users, notifier)),
+        ("Set Facility Hours", lambda: set_facility_hours(facilities)),
+        ("Send Reminders", lambda: send_reminders(users, notifier)),
+        ("Usage Report", lambda: show_usage_report(facilities)),
+    ]
+    run_menu(f"Admin: {admin.name} ({admin.role.value})", actions, admin, facilities)
 
+# this has it as a shared loop for the user and admin menus so the logout is always the last option
+# also it saves after every action
+def run_menu(title, actions, user, facilities):
+    labels = [label for label, _ in actions] + ["Logout"]
+    while True:
+        update_events(facilities)
+        print(f"\n--- {title} ---")
+        choice = get_menu_choice(labels)
+        if choice == len(labels):
+            user.logout()
+            print("Logged out.")
+            return
+        _, action = actions[choice - 1]
+        action()
 
 # show each Pending request (with support requests) and let the admin approve or reject it
 # notify user who made booking of this change.

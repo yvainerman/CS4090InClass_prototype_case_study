@@ -1,4 +1,16 @@
-from enums import ReservationStatus
+from enums import ReservationStatus, Role
+from datetime import datetime
+
+ALL_ROLES = frozenset(Role)
+REVIEWER_ROLES = frozenset({Role.EVENT_APPROVER, Role.SYSTEM_ADMINISTRATOR})
+PERMISSIONS = {
+    "approve": REVIEWER_ROLES,
+    "reject": REVIEWER_ROLES,
+    "reserve": ALL_ROLES,
+    "edit": ALL_ROLES,
+    "cancel": ALL_ROLES,
+    "request_support": ALL_ROLES,
+}
 
 # user using the system. role decides what they're allowed to do.
 class User:
@@ -10,27 +22,42 @@ class User:
         self.role = role  # a role
         self.reservations = []  # reservations this user submitted
         self.approvals = []  # approvals this user made as a reviewer
+        self.logged_in = False
 
     # sign up a new user so they can log in later
     # main.py should save this to users.json after registering
     def register(self):
-        pass
+        if not self.name.strip():
+            raise ValueError("Name cannot be empty.")
+        if "@" not in self.email or "." not in self.email.split("@")[-1]:
+            raise ValueError("Email must look like name@campus.edu.")
+        if not isinstance(self.role, Role):
+            raise ValueError("Pick one of the listed roles.")
 
     # log the user in. True if worked, False if not
     def login(self):
-        pass
+        if self.logged_in:
+            return False  # already logged in
+        self.logged_in = True
+        return True
 
     # log user out (program goes back to start menu)
     def logout(self):
-        pass
+        self.logged_in = False
 
     # check if user's role is allowed to do an action like "approve". return bool.
+    # unknown actions are denied so a typo can't accidentaly grant access
     def is_authorized(self, action):
-        pass
+        return self.role in PERMISSIONS.get(action, frozenset())
 
     # return approved bookings that haven't started yet.
-    def view_upcoming_events(self):
-        pass
+    def view_upcoming_events(self, now=None):
+        now = now or datetime.now()
+        upcoming = [
+            r for r in self.reservations
+            if r.status == ReservationStatus.APPROVED and r.start_at and r.start_at > now
+        ]
+        return sorted(upcoming, key=lambda r: r.start_at)
 
 
 # building that contains rooms. owns opening & closing hours.
