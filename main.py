@@ -1,5 +1,4 @@
 # console program for the Smart Campus Event & Facility Booking System.
-#
 # drafted some base imports here but these may change as you fill this out
 
 from datetime import datetime
@@ -54,7 +53,7 @@ def update_events(facilities):
     pass
 
 
-# START HERE
+# PIPELINE START HERE
 
 
 # load users, create the facilities and the NotificationService, then loop:
