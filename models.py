@@ -73,25 +73,47 @@ class Facility:
 
     # check if facility is open for the whole time from start_at to end_at
     def is_available(self, start_at, end_at):
-        pass
+        begin_time = start_at.hour + start_at.minute / 60
+        end_time = end_at.hour + end_at.minute / 60
+        if begin_time < self._open_at:
+            return False
+        if end_time > self._close_at:
+            return False
+        return True
 
     # set the facility's opening/closing time.
     def set_hours(self, open_at, close_at):
-        pass
+        self._open_at = open_at
+        self._close_at = close_at
 
     # search for rooms that are free from start_at to end_at,
     # fit at least min_capacity of people
     # and are at the given location.
-    # static: not tied to one facility, so it's called as
-    # Facility.find_available_rooms(start_at, end_at, min_capacity, location)
-    @staticmethod  # underlined (static) in the class diagram
-    def find_available_rooms(start_at, end_at, min_capacity, location):
-        pass
+    def find_available_rooms(self, start_at, end_at, min_capacity):
+        available_rooms = []
+        if  not self.is_available(start_at, end_at):
+            return []
+        for room in self.rooms:
+            if not room.is_available(start_at, end_at):
+                continue
+            if room.capacity < min_capacity:
+                continue
+            available_rooms.append(room)
+
+        return available_rooms
 
     # return facility's bookings between start_at and end_at
     def generate_usage_report(self, start_at, end_at):
-        pass
+        # QUESTION_LE Should 'generate_usage_report be renamed something else?
+        # Because right now it's just returning the list of reservations.
+        reservations = []
+        for room in self.rooms:
+            for reservation in room.reservations:
+                if reservation.start_at < end_at and reservation.end_at > start_at:
+                    reservations.append(reservation)
 
+
+        return reservations
 
 # physical room in a facility. never stops existing when booking ends,
 # cycles back to Available.
@@ -111,18 +133,36 @@ class Room:
     # find this room's Approved reservations whose start time has arrived
     # and move them to InProgress (Reserved -> In_Use).
     def start_booking(self):
-        pass
+        now = datetime.now()
+
+        for reservation in self.reservations:
+            if not reservation.status == ReservationStatus.APPROVED:
+                continue
+            if not reservation.start_at <= now:
+                continue
+            reservation.status = ReservationStatus.IN_PROGRESS
 
     # find this room's InProgress reservations whose end time has passed
     # and move them to Completed (slot goes back to Available).
     def end_booking(self):
-        pass
+        now = datetime.now()
+
+        for reservation in self.reservations:
+            if not reservation.status == ReservationStatus.IN_PROGRESS:
+                continue
+            if not reservation.end_at <= now:
+                continue
+            reservation.status = ReservationStatus.COMPLETED
+        
 
 
 # booking record. status track are here
 class Reservation:
     # create a new reservation for a room. starts as Draft
     # details default to None so a Draft can be incomplete. 
+    # QUESTION-LE: Shouldn't reservation keep track of the user,
+    # to be able to send them notifications?
+    # TODO Add user as member of Reservation
     def __init__(
         self,
         reservation_id,
@@ -166,12 +206,12 @@ class Reservation:
     # admin approves the request: Pending -> Approved
     # (the time slot now reads as Reserved). user notified.
     def approve_request(self):
-        pass
+        self.status = ReservationStatus.APPROVED
 
     # admin rejects request: Pending -> Rejected
     # (this frees the time slot). user notified.
     def reject_request(self):
-        pass
+        self.status = ReservationStatus.REJECTED
 
     # throw away a draft that wasn't submitted? unsure if needed.
     def delete(self):
@@ -194,8 +234,8 @@ class Reservation:
         pass
 
     # remind user about upcoming Approved booking.
-    def send_reminder(self):
-        pass
+    def send_reminder(self, user, notifier):
+        notifier.notify_user(user, f"Reminder: {self.event_title} " f"in room {self.room.room_id} " f"on {self.start_at:%Y-%m-%d} " f"at {self.start_at:%H:%M}.")
 
 
 # one approve/reject decision on a reservation. 

@@ -47,7 +47,11 @@ def create_sample_facilities():
 
 # collect every reservation from every user (for admin screens).
 def get_all_reservations(users):
-    pass
+    reservations = []
+    for user in users:
+        for reservation in user.reservations:
+            reservations.append(reservation)
+    return reservations
 
 
 # start and end events based on the clock. call this right before showing any
@@ -56,7 +60,10 @@ def get_all_reservations(users):
 #   - In Progress and the current time is at or after its end -> end it (Completed)
 # use Room.start_booking(), end_booking()
 def update_events(facilities):
-    pass
+    for facility in facilities:
+        for room in facility.rooms:
+            room.start_booking()
+            room.end_booking()
 
 
 # PIPELINE START HERE
@@ -172,12 +179,41 @@ def show_user_menu(user, facilities, notifier):
 # ask for date, start/end time, minimum capacity and location to print free rooms
 # use Facility.find_available_rooms()
 def search_rooms(facilities):
-    pass
+    start_at = get_datetime("Please enter the starting date and time of your event")
+    end_at = get_datetime("Please enter the ending date and time of your event")
+    minimum_capacity = int(input("Please enter the minimum capacity you need for your reservation: "))
+    building_name = input("Please enter the building name you are trying to reserve a room in: ").strip().lower()
+
+    building_found = False
+    rooms_found = False
+
+    for facility in facilities:
+        if facility.name.lower() != building_name:
+            continue
+
+        building_found = True
+        available_rooms = facility.find_available_rooms(start_at, end_at, minimum_capacity)
+
+        for room in available_rooms:
+            print(f"{facility.name}: Room {room.room_id}, capacity {room.capacity}")
+            rooms_found = True
+
+    if not building_found:
+        print("No building with that name found.")
+    elif not rooms_found:
+        print("No available rooms matching your requirements found.")
 
 
 # let the user pick a facility and print its location, hours and rooms.
 def view_facility_details(facilities):
-    pass
+    choice = get_menu_choice([facility.name for facility in facilities])
+    facility = facilities[choice - 1]
+
+    print(f"{facility.name} - {facility.location}")
+    print(f"Hours: {facility._open_at} to {facility._close_at}")
+
+    for room in facility.rooms:
+        print(f"Room {room.room_id}: capacity {room.capacity}")
 
 
 # pick a room, create a Draft reservation, fill in its details, and submit it.
@@ -270,25 +306,89 @@ def run_menu(title, actions, user, facilities):
 # notify user who made booking of this change.
 # use Reservation.approve_request(), reject_request(), NotificationService.notify_user()
 def review_pending_requests(admin, users, notifier):
-    pass
+    pending_found = False
 
+    for user in users:
+        for reservation in user.reservations:
+            if reservation.status != ReservationStatus.PENDING:
+                continue
+
+            pending_found = True
+            print(f"\nRequester: {user.name}")
+            print(f"Event: {reservation.event_title}")
+            print(f"Room: {reservation.room.room_id}")
+            print(f"Start: {reservation.start_at:%Y-%m-%d %H:%M}")
+            print(f"End: {reservation.end_at:%Y-%m-%d %H:%M}")
+            print(f"Expected attendance: {reservation.expected_attendance}")
+
+            for support in reservation.support_requests:
+                print(f"Support: {support.support_type.value}: {support.details}")
+
+            choice = get_menu_choice(["Approve", "Reject", "Skip"])
+            if choice == 1:
+                reservation.approve_request()
+                notifier.notify_user(user, f"Your reservation for {reservation.event_title} was approved.")
+            elif choice == 2:
+                reservation.reject_request()
+                notifier.notify_user(user, f"Your reservation for {reservation.event_title} was rejected.")
+
+    if not pending_found:
+        print("No pending requests.") 
 
 # pick a facility and set its opening and closing time.
 # use Facility.set_hours(), Facility.is_available()
 def set_facility_hours(facilities):
-    pass
+    choice = get_menu_choice([facility.name for facility in facilities])
+    facility = facilities[choice - 1]
+
+    opening = datetime.strptime(input("Opening time (HH:MM): ").strip(), "%H:%M")
+    closing = datetime.strptime(input("Closing time (HH:MM): ").strip(), "%H:%M")
+
+    open_at = opening.hour + opening.minute / 60
+    close_at = closing.hour + closing.minute / 60
+
+    facility.set_hours(open_at, close_at)
+    print( f"{facility.name} hours updated to {opening:%H:%M}-{closing:%H:%M}.")
+
 
 
 # send a reminder for every Approved booking.
 # use Reservation.send_reminder()
 def send_reminders(users, notifier):
-    pass
+    now = datetime.now()
+    reminders_sent = 0
+
+    for user in users:
+        for reservation in user.view_upcoming_events(now):
+            reservation.send_reminder(user, notifier)
+            reminders_sent += 1
+
+    if reminders_sent == 0:
+        print("No upcoming approved bookings to remind users about.")
+    else:
+        print(f"Sent {reminders_sent} reminder(s).") 
 
 
 # pick a facility and a date range, and print the bookings in that range.
 # use Facility.generate_usage_report()
 def show_usage_report(facilities):
-    pass
+    choice = get_menu_choice([facility.name for facility in facilities])
+    facility = facilities[choice - 1]
+
+    start_at = get_datetime("Report starting date and time")
+    end_at = get_datetime("Report ending date and time")
+
+    reservations = facility.generate_usage_report(start_at, end_at)
+
+    print(f"\nUsage report for {facility.name}")
+    for reservation in reservations:
+        print(f"\nReservation: {reservation.reservation_id}")
+        print(f"Event: {reservation.event_title}")
+        print(f"Room: {reservation.room.room_id}")
+        print(f"Start: {reservation.start_at:%Y-%m-%d %H:%M}")
+        print(f"End: {reservation.end_at:%Y-%m-%d %H:%M}")
+        print(f"Expected attendance: {reservation.expected_attendance}")
+        print(f"Status: {reservation.status.value}")
 
 
 if __name__ == "__main__":
