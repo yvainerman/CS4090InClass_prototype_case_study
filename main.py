@@ -221,26 +221,188 @@ def view_facility_details(facilities):
 # use Reservation.send_request(), is_complete(), check_availability(),
 # show_validation_errors(), delete(), Room.is_available()
 def reserve_room(user, facilities, notifier):
-    pass
+    rooms = []
+    for facility in facilities:
+        r = [room for room in facility.rooms]
+        rooms.append((facility, r))
 
+    pick = get_menu_choice([facility.name for facility, _ in rooms] + ["Back"])
+    if pick == len(rooms) + 1: return
+    facility: Facility
+    facility, facility_rooms = rooms[pick - 1]
+
+    labels = [f"Room {room.room_id} ({room.capacity})" for room in facility_rooms]
+    pick = get_menu_choice(labels + ["Back"])
+    if pick == len(rooms) + 1: return
+    room = facility_rooms[pick - 1]
+
+    numbers = []
+    for _, n in rooms:
+        for existing in n:
+            for reservation in existing.reservations:
+                if reservation.reservation_id.isdigit():
+                    numbers.append(int(reservation.reservation_id))
+
+    numbers = max(numbers,default=0) + 1
+    reservation = Reservation(f"{numbers}", room, user=user, notifier=notifier)
+    user.reservations.append(reservation)
+    room.reservations.append(reservation)
+
+    while True:
+        title = input("Event title: ").strip()
+        start_at = get_datetime("Start time")
+        end_at = get_datetime("End time")
+        attendance_text = input("Expected attendance: ").strip()
+        attendance = int(attendance_text) if attendance_text.isdigit() else None
+        reservation.edit(event_title=title, start_at=start_at, end_at=end_at, expected_attendance=attendance)
+        errors = []
+        if attendance_text and attendance is None:
+            errors.append("Expected attendance must be numerical.")
+        if attendance is not None and attendance > room.capacity:
+            errors.append("Expected attendance is over room capacity.")
+        if end_at > start_at and not facility.is_available(start_at, end_at):
+            errors.append(f"{facility.name} is closed during requested hours.")
+
+        if not errors:
+            try:
+                reservation.send_request(start_at, end_at, title)
+                return
+            except Exception as e:
+                errors.append(str(e))
+
+        errors += reservation.show_validation_errors()
+        print("Failure to submit reservation:")
+        for error in errors:
+            print(f"  - {error}")
+
+        if get_menu_choice(["Edit", "Discard"]) == 2:
+            reservation.delete()
+            user.reservations.remove(reservation)
+            print("Discarded.")
+            return
 
 # pick one of the user's Approved bookings, change its details, and resubmit it
 # (it goes back to Draft and needs approval again).
 # use Reservation.edit(), send_request()
 def edit_booking(user, notifier):
-    pass
+    approved = []
+    for reservation in user.reservations:
+        if reservation.get_status() == ReservationStatus.APPROVED:
+            approved.append(reservation)
+
+    if len(approved) == 0:
+        print("You have no approved reservations to edit.")
+        return
+
+    menu = [f"{reservation.event_title} - in {reservation.room.room_id}" 
+            for reservation in approved]
+    pick = get_menu_choice(menu + ["Back"])
+    if pick == len(menu) + 1:
+        return
+    reservation: Reservation = approved[pick - 1]
+    room: Room = reservation.room
+
+    while True:
+        errors = []
+
+        title = input(f"New title or leave empty: ").strip()
+        if len(title) == 0: title = reservation.event_title
+        start_at = get_datetime("New start time")
+        end_at = get_datetime("New end time")
+        attendance = input(f"New expected attendance or leave empty: ").strip()
+        if len(attendance) == 0: attendance = reservation.expected_attendance
+        elif attendance.isdigit():
+            attendance = int(attendance)
+        else:
+            errors.append("Attendance must be a number.")
+
+        if end_at <= start_at:
+            errors.append("End time cannot be before start time.")
+        if attendance > room.capacity:
+            errors.append(f"Expected attendance exceeds room capacity {room.capacity}.")
+        for other in room.reservations:
+            if other is reservation or other.get_status() not in [
+                ReservationStatus.PENDING,
+                ReservationStatus.APPROVED,
+                ReservationStatus.IN_PROGRESS
+            ]:
+                continue
+
+            if start_at < other.end_at and end_at > other.start_at:
+                errors.append("Room is occupied at the time.")
+                break
+
+        if not errors:
+            break
+
+        print("Failed to make change.")
+        for error in errors:
+            print(f"  - {error}")
+        if get_menu_choice(["Edit", "Keep original booking"]) == 2:
+            return
+
+        reservation.user = user
+        reservation.notifier = notifier
+        try:
+            reservation.edit(
+                event_title=title, 
+                start_at=start_at, 
+                end_at=end_at, 
+                expected_attendance=attendance
+            )
+        except Exception as e:
+            print(str(e))
+            return
+
+        try:
+            reservation.send_request(start_at, end_at, title)
+            print("Updated successfully. Requesting approval.")
+        except Exception as e:
+            print(str(e))
+            for error in reservation.show_validation_errors():
+                print(f"  - {error}")
 
 
 # pick one of the user's Pending or Approved bookings and cancel it.
 # use Reservation.request_cancel()
 def cancel_booking(user, notifier):
-    pass
+    cancellable = []
+    for reservation in user.reservations:
+        if reservation.get_status() in [ReservationStatus.PENDING, ReservationStatus.APPROVED]:
+            cancellable.append(reservation)
+    if not cancellable:
+        print("You have nothing to cancel.")
+        return
+
+    choices = [f"{res.event_title} - {res.room.room_id}" for res in cancellable]
+    pick = get_menu_choice(choices + ["Back"])
+    if pick == len(choices) + 1:
+        return
+
+    reservation: Reservation = cancellable[pick-1]
+    reservation.request_cancel()
 
 
 # print each of the user's bookings with its status and any support requests.
 # use Reservation.get_status()
 def view_my_bookings(user):
-    pass
+    if not user.reservations:
+        print("You have no bookings.")
+        return
+
+    res: Reservation
+    for res in user.reservations:
+        print(f"\n{res.reservation_id}: {res.event_title or 'untitled'}")
+        print(f"  Room: {res.room.room_id}")
+        print(f"  Start: {res.start_at or 'No time listed'}")
+        print(f"  End: {res.end_at or 'No time listed'}")
+        print(f"  Attendance: {res.expected_attendance or 'No time listed'}")
+        print(f"  Status: {res.get_status()}")
+        if res.support_requests:
+            for sup in res.support_requests:
+                print(f"  Support Request: {sup.support_type.value} - {sup.details}")
+        else:
+            print(f"  Support: None requested")
 
 
 # pick one of the user's Pending or Approved bookings, pick a type
@@ -251,7 +413,31 @@ def view_my_bookings(user):
 # it is saved on that booking as a SupportRequest.
 # use Reservation.request_support()
 def request_support(user):
-    pass
+    reses = []
+    for reservation in user.reservations:
+        if reservation.get_status() in [ReservationStatus.PENDING, ReservationStatus.APPROVED]:
+            reses.append(reservation)
+    if not reses:
+        print("You have nothing to cancel.")
+        return
+
+    choices = [f"{res.event_title} - {res.room.room_id}" for res in reses]
+    pick = get_menu_choice(choices + ["Back"])
+    if pick == len(choices) + 1:
+        return
+
+    reservation: Reservation = reses[pick-1]
+
+    _types = list(SupportType)
+    print("Requested support type:")
+    support_type = _types[get_menu_choice([typ.value for typ in _types]) - 1]
+
+    details = input("Details (for example 'projector and 2 microphones'): ").strip()
+    while not details:
+        details = input("Please enter details: ").strip()
+
+    reservation.request_support(support_type, details)
+    print(f"A request for {support_type.value} was made for event \"{reservation.event_title}\".")
 
 
 # print the user's approved bookings that haven't happened yet.
@@ -310,7 +496,7 @@ def review_pending_requests(admin, users, notifier):
 
     for user in users:
         for reservation in user.reservations:
-            if reservation.status != ReservationStatus.PENDING:
+            if reservation.get_status() != ReservationStatus.PENDING:
                 continue
 
             pending_found = True

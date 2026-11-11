@@ -1,6 +1,8 @@
 from enums import ReservationStatus, Role
 from datetime import datetime
 
+from services import NotificationService
+
 ALL_ROLES = frozenset(Role)
 REVIEWER_ROLES = frozenset({Role.EVENT_APPROVER, Role.SYSTEM_ADMINISTRATOR})
 PERMISSIONS = {
@@ -128,7 +130,18 @@ class Room:
     # a booking holds the room if it's Pending, Approved or InProgress
     # and its times overlap. this is where we prevent double booking.
     def is_available(self, start_at, end_at):
-        pass
+        held_states = [
+            ReservationStatus.PENDING,
+            ReservationStatus.APPROVED,
+            ReservationStatus.IN_PROGRESS,
+        ]
+
+        for reservation in self.reservations:
+            if start_at < reservation.end_at and end_at > reservation.start_at:
+                if reservation.status in held_states:
+                    return False
+
+        return True
 
     # find this room's Approved reservations whose start time has arrived
     # and move them to InProgress (Reserved -> In_Use).
@@ -167,6 +180,8 @@ class Reservation:
         self,
         reservation_id,
         room,
+        user=None,
+        notifier=None,
         event_title=None,
         start_at=None,
         end_at=None,
@@ -174,6 +189,8 @@ class Reservation:
     ):
         self.reservation_id = reservation_id
         self.room = room  # the Room being reserved
+        self.user = user
+        self.notifier = notifier
         self.event_title = event_title
         self.start_at = start_at
         self.end_at = end_at
@@ -186,52 +203,162 @@ class Reservation:
     # Draft -> Pending and user is notified.
     # if not, it stays Draft and show_validation_errors() runs.
     def send_request(self, start_at, end_at, event_title):
-        pass
+        if self.status != ReservationStatus.DRAFT: return
+
+        self.start_at = start_at
+        self.end_at = end_at
+        self.event_title = event_title
+
+        if not self.is_complete() or not self.check_availability():
+            self.show_validation_errors()
+            raise Exception("Incomplete reservations cannot be submitted for approval.")
+
+        if self not in self.room.reservations:
+            self.room.reservations.append(self)
+        
+        self.status = ReservationStatus.PENDING
+        if self.notifier and self.user:
+            self.notifier.notify_user(
+                self.user,
+                (f"Your reservation: {event_title} ({self.reservation_id}) in "
+                f"{self.room} was submitted for approval.")
+            )
 
     # change booking details. editing a Draft keeps it a Draft.
     # editing an Approved booking frees the room and sends it back to Draft
     # so it has to be submitted and Approved again.
-    def edit(self):
-        pass
+    def edit(self, event_title=None, start_at=None, end_at=None, expected_attendance=None):
+        valid_states = [
+            ReservationStatus.DRAFT, ReservationStatus.PENDING, ReservationStatus.APPROVED
+        ]
+
+        if self.status not in valid_states:
+            raise Exception("Invalid reservation state to edit")
+
+        self.event_title = event_title if event_title is not None else self.event_title
+        self.start_at = start_at if start_at is not None else self.start_at
+        self.end_at = end_at if end_at is not None else self.end_at
+        self.expected_attendance = expected_attendance if expected_attendance is not None else self.expected_attendance
+
+        if self.status != ReservationStatus.DRAFT:
+            self.status = ReservationStatus.DRAFT
+            if self in self.room.reservations:
+                self.room.reservations.remove(self)
 
     # check that room is free for this reservation's time. return bool
     def check_availability(self):
-        pass
+        if self.start_at is None or self.end_at is None:
+            return False
+
+        if self.room.is_available(self.start_at, self.end_at):
+            return True
+
+        return False
 
     # cancel a Pending/Approved booking: status goes to Cancelled.
     # room is freed, user notified.
     def request_cancel(self):
-        pass
+        if self.status not in [ReservationStatus.PENDING, ReservationStatus.APPROVED]:
+            return
+
+        self.status = ReservationStatus.CANCELLED
+        if self.notifier is not None and self.user is not None:
+            self.notifier.notify_user(
+                self.user,
+                f"Reservation {self.event_title} was cancelled."
+            )
 
     # admin approves the request: Pending -> Approved
     # (the time slot now reads as Reserved). user notified.
     def approve_request(self):
+        if self.status != ReservationStatus.PENDING:
+            return
+
         self.status = ReservationStatus.APPROVED
+
+        if self.notifier is not None and self.user is not None:
+            self.notifier.notify_user(
+                self.user,
+                f"Booking {self.event_title} for room {self.room.room_id} was approved."
+            )
 
     # admin rejects request: Pending -> Rejected
     # (this frees the time slot). user notified.
     def reject_request(self):
+        if self.status != ReservationStatus.PENDING:
+            return
+
         self.status = ReservationStatus.REJECTED
+
+        if self.notifier is not None and self.user is not None:
+            self.notifier.notify_user(
+                self.user,
+                f"Booking {self.event_title} for room {self.room.room_id} was rejected."
+            )
 
     # throw away a draft that wasn't submitted? unsure if needed.
     def delete(self):
-        pass
+        if self.status != ReservationStatus.DRAFT:
+            return
+
+        if self in self.room.reservations:
+            self.room.reservations.remove(self)
 
     # return current status
     def get_status(self):
-        pass
+        return self.status
 
     # check that all required details are filled in. return bool
     def is_complete(self):
-        pass
+        check = True
+
+        try:
+            check = True if len(str(self.event_title).strip()) > 0 else False
+        except:
+            return False
+
+        check = check if self.start_at is not None else False
+        check = check if self.end_at is not None else False
+        check = check if self.expected_attendance is not None else False
+
+        return check
 
     # tell user whats wrong after a failed submit (missing details or room taken)
     def show_validation_errors(self):
-        pass
+        errors = []
+
+        try:
+            if len(str(self.event_title).strip()) < 1:
+                raise Exception()
+        except:
+            errors.append("Event title missing.")
+
+        if self.start_at is None:
+            errors.append("Start time missing.")
+
+        if self.end_at is None:
+            errors.append("End time missing.")
+
+        if self.expected_attendance is None:
+            errors.append("Expected attendance missing.")
+
+        if self.start_at is not None and self.end_at is not None:
+            if self.end_at <= self.start_at:
+                errors.append("End time must be after start time.")
+            if not self.check_availability():
+                errors.append("Room unavailable.")
+        
+        return errors
 
     # attach an equipment, security, or event support request to booking.
     def request_support(self, support_type, details):
-        pass
+        support_request = SupportRequest(
+            f"{self.reservation_id}-{len(self.support_requests)}",
+            support_type,
+            details
+        )
+        self.support_requests.append(support_request)
+        return support_request
 
     # remind user about upcoming Approved booking.
     def send_reminder(self, user, notifier):
