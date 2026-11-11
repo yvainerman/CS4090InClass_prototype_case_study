@@ -1,7 +1,7 @@
 from enums import ReservationStatus, Role
 from datetime import datetime
 
-from services import NotificationService
+# from services import NotificationService # CIRCULAR
 
 ALL_ROLES = frozenset(Role)
 REVIEWER_ROLES = frozenset({Role.EVENT_APPROVER, Role.SYSTEM_ADMINISTRATOR})
