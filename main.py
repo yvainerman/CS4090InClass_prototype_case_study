@@ -81,6 +81,8 @@ def main():
     facilities = create_sample_facilities()
     users = load_users(facilities)  # needs facilities to relink saved bookings to rooms
     notifier = NotificationService()
+    for reservation in get_all_reservations(users):
+        reservation.notifier = notifier
  
     while True:
         update_events(facilities)
@@ -95,6 +97,8 @@ def main():
                 show_admin_menu(user, users, facilities, notifier)
             else:
                 show_user_menu(user, facilities, notifier)
+            save_users(users) # save on logout
+
         elif choice == 2:
             register_screen(users)
         else:
@@ -169,7 +173,7 @@ def show_user_menu(user, facilities, notifier):
         ("Search for a Room", lambda: search_rooms(facilities)),
         ("View Facility Details", lambda: view_facility_details(facilities)),
         ("Reserve a Room", lambda: reserve_room(user, facilities, notifier)),
-        ("Edit a Booking", lambda: edit_booking(user, notifier)),
+        ("Edit a Booking", lambda: edit_booking(user, facilities, notifier)),
         ("Cancel a Booking", lambda: cancel_booking(user, notifier)),
         ("View My Bookings", lambda: view_my_bookings(user)),
         ("Request Equipment / Security / Event Support", lambda: request_support(user)),
@@ -287,7 +291,7 @@ def reserve_room(user, facilities, notifier):
 # pick one of the user's Approved bookings, change its details, and resubmit it
 # (it goes back to Draft and needs approval again).
 # use Reservation.edit(), send_request()
-def edit_booking(user, notifier):
+def edit_booking(user, facilities, notifier):
     states_editable = [
         ReservationStatus.DRAFT, ReservationStatus.PENDING, ReservationStatus.APPROVED
     ]
@@ -325,6 +329,12 @@ def edit_booking(user, notifier):
 
         if end_at <= start_at:
             errors.append("End time cannot be before start time.")
+        if start_at <= datetime.now():
+            errors.append("Start time cannot be in the past.")
+        facility = next(f for f in facilities if room in f.rooms)
+        if end_at > start_at and not facility.is_available(start_at, end_at):
+            errors.append(f"{facility.name} is closed during requested hours.")
+
         if attendance > room.capacity:
             errors.append(f"Expected attendance exceeds room capacity {room.capacity}.")
         for other in room.reservations:
@@ -536,8 +546,15 @@ def set_facility_hours(facilities):
     choice = get_menu_choice([facility.name for facility in facilities])
     facility = facilities[choice - 1]
 
-    opening = datetime.strptime(input("Opening time (HH:MM): ").strip(), "%H:%M")
-    closing = datetime.strptime(input("Closing time (HH:MM): ").strip(), "%H:%M")
+    try:
+        opening = datetime.strptime(input("Opening time (HH:MM): ").strip(), "%H:%M")
+        closing = datetime.strptime(input("Closing time (HH:MM): ").strip(), "%H:%M")
+    except ValueError:
+        print("Invalid time format. Please use HH:MM.")
+        return
+    if closing <= opening:
+        print("Closing time must be after opening time.")
+        return
 
     open_at = opening.hour + opening.minute / 60
     close_at = closing.hour + closing.minute / 60
@@ -545,6 +562,13 @@ def set_facility_hours(facilities):
     facility.set_hours(open_at, close_at)
     print( f"{facility.name} hours updated to {opening:%H:%M}-{closing:%H:%M}.")
 
+    for room in facility.rooms:
+        for reservation in room.reservations:
+            if reservation.get_status() not in [ReservationStatus.APPROVED, ReservationStatus.PENDING]:
+                continue
+            if not facility.is_available(reservation.start_at, reservation.end_at):
+                reservation.request_cancel()
+                print(f"Cancelled {reservation.event_title} in {room.room_id} due to new facility hours.")
 
 
 # send a reminder for every Approved booking.

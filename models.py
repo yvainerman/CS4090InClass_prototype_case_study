@@ -75,6 +75,9 @@ class Facility:
 
     # check if facility is open for the whole time from start_at to end_at
     def is_available(self, start_at, end_at):
+        if start_at.date() != end_at.date() or end_at <= start_at:
+            return False
+        
         begin_time = start_at.hour + start_at.minute / 60
         end_time = end_at.hour + end_at.minute / 60
         if begin_time < self._open_at:
@@ -275,6 +278,9 @@ class Reservation:
         if self.start_at is None or self.end_at is None:
             return False
 
+        if self.end_at <= self.start_at or self.start_at <= datetime.now():
+            return False
+        
         if self.room.is_available(self.start_at, self.end_at):
             return True
 

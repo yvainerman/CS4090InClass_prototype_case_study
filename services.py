@@ -41,7 +41,7 @@ def load_users(facilities):
                       f"(room {res_data['room_id']} no longer exists).")
                 continue
             reservation = _reservation_from_dict(res_data, room, users_by_id)
-            reservation.requester = user  # who to notify
+            reservation.user = user  # who to notify
             user.reservations.append(reservation)
             room.reservations.append(reservation)
  
