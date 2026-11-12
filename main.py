@@ -83,7 +83,7 @@ def main():
  
     while True:
         update_events(facilities)
-        print("\nSmart Campus Event & facility Booking")
+        print("\nSmart Campus Event & Facility Booking")
         choice = get_menu_choice(["Login", "Register", "Exit"])
  
         if choice == 1:
@@ -207,10 +207,12 @@ def search_rooms(facilities):
 # let the user pick a facility and print its location, hours and rooms.
 def view_facility_details(facilities):
     choice = get_menu_choice([facility.name for facility in facilities])
+    facility: Facility
     facility = facilities[choice - 1]
 
     print(f"{facility.name} - {facility.location}")
-    print(f"Hours: {facility._open_at} to {facility._close_at}")
+    hours = facility.get_hours_formatted()
+    print(f"Hours: {hours[0]} to {hours[1]}")
 
     for room in facility.rooms:
         print(f"Room {room.room_id}: capacity {room.capacity}")
@@ -233,7 +235,7 @@ def reserve_room(user, facilities, notifier):
 
     labels = [f"Room {room.room_id} ({room.capacity})" for room in facility_rooms]
     pick = get_menu_choice(labels + ["Back"])
-    if pick == len(rooms) + 1: return
+    if pick == len(facility_rooms) + 1: return
     room = facility_rooms[pick - 1]
 
     numbers = []
@@ -285,9 +287,13 @@ def reserve_room(user, facilities, notifier):
 # (it goes back to Draft and needs approval again).
 # use Reservation.edit(), send_request()
 def edit_booking(user, notifier):
+    states_editable = [
+        ReservationStatus.DRAFT, ReservationStatus.PENDING, ReservationStatus.APPROVED
+    ]
+
     approved = []
     for reservation in user.reservations:
-        if reservation.get_status() == ReservationStatus.APPROVED:
+        if reservation.get_status() in states_editable:
             approved.append(reservation)
 
     if len(approved) == 0:
@@ -341,26 +347,26 @@ def edit_booking(user, notifier):
         if get_menu_choice(["Edit", "Keep original booking"]) == 2:
             return
 
-        reservation.user = user
-        reservation.notifier = notifier
-        try:
-            reservation.edit(
-                event_title=title, 
-                start_at=start_at, 
-                end_at=end_at, 
-                expected_attendance=attendance
-            )
-        except Exception as e:
-            print(str(e))
-            return
+    reservation.user = user
+    reservation.notifier = notifier
+    try:
+        reservation.edit(
+            event_title=title, 
+            start_at=start_at, 
+            end_at=end_at, 
+            expected_attendance=attendance
+        )
+    except Exception as e:
+        print(str(e))
+        return
 
-        try:
-            reservation.send_request(start_at, end_at, title)
-            print("Updated successfully. Requesting approval.")
-        except Exception as e:
-            print(str(e))
-            for error in reservation.show_validation_errors():
-                print(f"  - {error}")
+    try:
+        reservation.send_request(start_at, end_at, title)
+        print("Updated successfully. Requesting approval.")
+    except Exception as e:
+        print(str(e))
+        for error in reservation.show_validation_errors():
+            print(f"  - {error}")
 
 
 # pick one of the user's Pending or Approved bookings and cancel it.
@@ -397,7 +403,7 @@ def view_my_bookings(user):
         print(f"  Start: {res.start_at or 'No time listed'}")
         print(f"  End: {res.end_at or 'No time listed'}")
         print(f"  Attendance: {res.expected_attendance or 'No time listed'}")
-        print(f"  Status: {res.get_status()}")
+        print(f"  Status: {res.get_status().value}")
         if res.support_requests:
             for sup in res.support_requests:
                 print(f"  Support Request: {sup.support_type.value} - {sup.details}")
@@ -494,7 +500,9 @@ def run_menu(title, actions, user, facilities):
 def review_pending_requests(admin, users, notifier):
     pending_found = False
 
+    user: User
     for user in users:
+        reservation: Reservation
         for reservation in user.reservations:
             if reservation.get_status() != ReservationStatus.PENDING:
                 continue
@@ -503,8 +511,8 @@ def review_pending_requests(admin, users, notifier):
             print(f"\nRequester: {user.name}")
             print(f"Event: {reservation.event_title}")
             print(f"Room: {reservation.room.room_id}")
-            print(f"Start: {reservation.start_at:%Y-%m-%d %H:%M}")
-            print(f"End: {reservation.end_at:%Y-%m-%d %H:%M}")
+            print(f"Start: {reservation.start_at}")
+            print(f"End: {reservation.end_at}")
             print(f"Expected attendance: {reservation.expected_attendance}")
 
             for support in reservation.support_requests:

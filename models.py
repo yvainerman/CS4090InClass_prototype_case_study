@@ -88,6 +88,31 @@ class Facility:
         self._open_at = open_at
         self._close_at = close_at
 
+    # returns opening/closing time formatted as a tuple of strings
+    def get_hours_formatted(self) -> tuple[str, str]:
+        open: str = ""
+        close: str = ""
+
+        # Shouldnt happen, but default hours
+
+        if self._open_at is None:
+            open = "8:00"
+
+        if self._close_at is None:
+            close = "22:00"
+
+        if open == "" and self._open_at is not None: # satisfying LSP req
+            hours = int(self._open_at)
+            minutes = round((self._open_at - hours) * 60)
+            open = f"{hours}:{minutes:02d}"
+
+        if close == "" and self._close_at is not None: # satisfying LSP req
+            hours = int(self._close_at)
+            minutes = round((self._close_at - hours) * 60)
+            close = f"{hours}:{minutes:02d}"
+
+        return (open, close)
+
     # search for rooms that are free from start_at to end_at,
     # fit at least min_capacity of people
     # and are at the given location.
@@ -180,12 +205,12 @@ class Reservation:
         self,
         reservation_id,
         room,
-        user=None,
-        notifier=None,
         event_title=None,
         start_at=None,
         end_at=None,
         expected_attendance=None,
+        user=None,
+        notifier=None,
     ):
         self.reservation_id = reservation_id
         self.room = room  # the Room being reserved
@@ -221,7 +246,7 @@ class Reservation:
             self.notifier.notify_user(
                 self.user,
                 (f"Your reservation: {event_title} ({self.reservation_id}) in "
-                f"{self.room} was submitted for approval.")
+                f"{self.room.room_id} was submitted for approval.")
             )
 
     # change booking details. editing a Draft keeps it a Draft.
