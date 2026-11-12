@@ -1,3 +1,4 @@
+#!/bin/pyhton3
 # console program for the Smart Campus Event & Facility Booking System.
 # drafted some base imports here but these may change as you fill this out
 
