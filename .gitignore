@@ -1,4 +1,6 @@
 users.json
+booking_data.json
+booking_data.json.tmp
 __pycache__
 __pycache__/*
 __pycache__/
