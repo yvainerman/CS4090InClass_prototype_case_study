@@ -1,6 +1,6 @@
 # Miner Space — Smart Campus Booking
 
-A local demonstration app for the Smart Campus Event & Facility Booking case study. It has a Missouri S&T-inspired scarlet-and-gold web interface, a terminal interface, and one shared application/service layer. Both interfaces use the same validation, reservation, approval, support, and reporting logic.
+A local demonstration app for the Smart Campus Event & Facility Booking case study. It has a Missouri S&T-inspired green-and-gold web interface, a terminal interface, and one shared application/service layer. Both interfaces use the same validation, reservation, approval, support, and reporting logic.
 
 ## Run it
 
